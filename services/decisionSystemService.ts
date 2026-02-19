@@ -21,6 +21,7 @@ import {
 import { fetchAmazonOffers } from './amazonService';
 import { fetchCrawledOffers } from './crawlerService';
 import { computeTitleMatchConfidence, isExactTitleMatch } from './titleResolver';
+import { resolveOriginalTitleFallback } from './originalTitleFallbackService';
 import {
   BookDecision,
   BookIdentityOverride,
@@ -437,6 +438,16 @@ const resolveOriginalTitleFromItem = async (item: Record<string, unknown> | unde
     const lookup = await lookupAladinItemByIsbn13(isbn13);
     const lookupOriginal = extractOriginalTitle((lookup?.subInfo as { originalTitle?: string } | undefined)?.originalTitle);
     if (lookupOriginal) return lookupOriginal;
+  }
+
+  const fallback = await resolveOriginalTitleFallback({
+    title: typeof item.title === 'string' ? item.title : undefined,
+    author: typeof item.author === 'string' ? item.author : undefined,
+    isbn13,
+    pubDate: typeof item.pubDate === 'string' ? item.pubDate : undefined,
+  });
+  if (fallback?.originalTitle) {
+    return fallback.originalTitle;
   }
 
   return null;
