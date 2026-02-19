@@ -717,7 +717,7 @@ export const SearchAndPreferences: React.FC<Props> = ({
                         }))
                       }
                     />
-                    아마존 원서만
+                    아마존 원서만 (Amazon + Amazon JP)
                   </label>
                   <label className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5">
                     <input
@@ -731,9 +731,12 @@ export const SearchAndPreferences: React.FC<Props> = ({
                         }))
                       }
                     />
-                    알라딘 + 아마존 원서
+                    알라딘 + 아마존(글로벌/JP) 원서
                   </label>
                 </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Amazon JP 주소가 연결되면 일본어 원서(엔화 환산가)도 자동으로 함께 비교합니다.
+                </p>
               </div>
             )}
             {preferences.includeOriginalEditions && (

@@ -159,6 +159,8 @@ const buildStrategyComparisons = (decisions: BookDecision[]) => {
 };
 
 const findRecommendedOffer = (offers: Offer[], offerId?: string) => offers.find((offer) => offer.id === offerId);
+const resolveSourceLabel = (source: Offer['source'], vendor?: string) =>
+  source === 'AMAZON_CRAWLER' && vendor?.toLowerCase().includes('jp') ? '아마존 JP' : SOURCE_LABEL[source];
 
 export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity }) => {
   if (result.decisions.length === 0) return null;
@@ -168,7 +170,7 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
     ? `${bundle.items
         .map(
           (item) =>
-            `${item.queryTitle}(${SOURCE_LABEL[item.source]}/${item.sellerName} ${formatCurrency(item.totalPrice)}${item.shippingNote ? `, ${item.shippingNote}` : ''})`,
+            `${item.queryTitle}(${resolveSourceLabel(item.source, item.vendor)}/${item.sellerName} ${formatCurrency(item.totalPrice)}${item.shippingNote ? `, ${item.shippingNote}` : ''})`,
         )
         .join(' + ')} = ${formatCurrency(bundle.total)}`
     : '';
@@ -185,7 +187,7 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
           </div>
           {stats && (
             <div className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
-              알라딘 {stats.sourceStats.aladinApiOffers}건 / 다른 판매처 {stats.sourceStats.crawlerOffers}건 / 아마존 {stats.sourceStats.amazonOffers}건
+              알라딘 {stats.sourceStats.aladinApiOffers}건 / 다른 판매처 {stats.sourceStats.crawlerOffers}건 / 아마존(글로벌·JP) {stats.sourceStats.amazonOffers}건
             </div>
           )}
         </div>
@@ -225,7 +227,7 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
               <span className="h-2 w-2 rounded-full bg-amber-500" />
-              아마존
+              아마존 / Amazon JP
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-violet-800">
               <span className="h-2 w-2 rounded-full bg-violet-500" />
@@ -285,7 +287,7 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
                     <td className="px-3 py-2">
                       <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${SOURCE_BADGE_STYLE[item.source]}`}>
                         <span className={`mr-1 h-2 w-2 rounded-full ${SOURCE_DOT_STYLE[item.source]}`} />
-                        {SOURCE_LABEL[item.source]}
+                        {resolveSourceLabel(item.source, item.vendor)}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right">{formatCurrency(item.price)}</td>

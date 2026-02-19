@@ -125,6 +125,7 @@ const AMAZON_USED_CONDITION_PRIORITY: Record<AmazonUsedConditionLevel, number> =
   GOOD: 2,
   ACCEPTABLE: 1,
 };
+const DEFAULT_JPY_KRW_RATE = safeNumber(import.meta.env.VITE_JPY_KRW_RATE, 9.2);
 
 const normalizeAmazonUsedCondition = (
   conditionText: string | undefined,
@@ -136,6 +137,10 @@ const normalizeAmazonUsedCondition = (
   if (text.includes('very good') || text.includes('매우 좋은')) return 'VERY_GOOD';
   if (text.includes('acceptable') || text.includes('그럭저럭')) return 'ACCEPTABLE';
   if (text.includes('good') || text.includes('좋은 상태')) return 'GOOD';
+  if (text.includes('ほぼ新品')) return 'LIKE_NEW';
+  if (text.includes('非常に良い')) return 'VERY_GOOD';
+  if (text.includes('良い')) return 'GOOD';
+  if (text.includes('可')) return 'ACCEPTABLE';
 
   if (fallbackCondition === '최상') return 'LIKE_NEW';
   if (fallbackCondition === '상') return 'VERY_GOOD';
@@ -187,6 +192,11 @@ const VENDOR_SHIPPING_POLICY: Record<string, ShippingPolicy> = {
     minAdditionalShipping: 800,
   },
   Amazon: {
+    freeShippingThreshold: null,
+    bundleAdditionalRate: 1,
+    minAdditionalShipping: 0,
+  },
+  'Amazon JP': {
     freeShippingThreshold: null,
     bundleAdditionalRate: 1,
     minAdditionalShipping: 0,
@@ -679,17 +689,31 @@ const mapAmazonOriginalOffers = async (
   originalTitle: string | null,
   preferences: UserPreferences,
 ): Promise<Offer[]> => {
-  if (!originalTitle) return [];
-  const rows = await fetchAmazonOffers(originalTitle);
+  const originalSeedTitle = originalTitle || query.raw;
+  if (!originalSeedTitle) return [];
+  const rows = await fetchAmazonOffers(originalSeedTitle);
 
   return rows
     .map((raw) => {
-      const matchedTitle = raw.title?.trim() || originalTitle;
-      const titleScore = computeTitleMatchConfidence(originalTitle, matchedTitle);
-      const exact = isExactTitleMatch(originalTitle, matchedTitle);
+      const matchedTitle = raw.title?.trim() || originalSeedTitle;
+      const titleScore = computeTitleMatchConfidence(originalSeedTitle, matchedTitle);
+      const exact = isExactTitleMatch(originalSeedTitle, matchedTitle);
       const inferred = inferCondition(raw.conditionText, raw.notes, '중');
       const isUsed = raw.isUsed ?? true;
       const amazonUsedCondition = normalizeAmazonUsedCondition(raw.conditionText, inferred.condition);
+      const market = raw.market ?? 'GLOBAL';
+      const currency = raw.currency ?? (market === 'JP' ? 'JPY' : 'KRW');
+      const fxRate = currency === 'JPY' ? Math.max(1, DEFAULT_JPY_KRW_RATE) : 1;
+      const normalizedPrice = Math.max(1000, safeNumber(raw.price, 0));
+      const normalizedShipping = Math.max(0, safeNumber(raw.shippingCost, 0));
+      const priceKrw = currency === 'JPY' ? Math.round(normalizedPrice * fxRate) : normalizedPrice;
+      const shippingKrw = currency === 'JPY' ? Math.round(normalizedShipping * fxRate) : normalizedShipping;
+      const marketVendor = market === 'JP' ? 'Amazon JP' : raw.vendor || 'Amazon';
+      const marketSellerName = raw.sellerName || (market === 'JP' ? 'Amazon JP Seller' : 'Amazon Seller');
+      const fxNote =
+        currency === 'JPY'
+          ? ` (JPY ${normalizedPrice.toLocaleString('ja-JP')} + 배송 ${normalizedShipping.toLocaleString('ja-JP')} 환산, 1엔=${fxRate.toFixed(2)}원)`
+          : '';
 
       return {
         id: generateId('offer'),
@@ -700,17 +724,17 @@ const mapAmazonOriginalOffers = async (
         normalizedMatchedTitle: normalizeTitle(matchedTitle),
         author: raw.author,
         isbn13: raw.isbn13,
-        vendor: raw.vendor || 'Amazon',
-        sellerName: raw.sellerName || 'Amazon Seller',
+        vendor: marketVendor,
+        sellerName: marketSellerName,
         source: 'AMAZON_CRAWLER' as const,
         condition: inferred.condition,
         conditionConfidence: inferred.confidence,
         isUsed,
-        price: Math.max(1000, safeNumber(raw.price, 0)),
+        price: priceKrw,
         shippingCost: applySingleShippingPolicy(
-          raw.vendor || 'Amazon',
-          Math.max(1000, safeNumber(raw.price, 0)),
-          Math.max(0, safeNumber(raw.shippingCost, 0)),
+          marketVendor,
+          priceKrw,
+          shippingKrw,
         ),
         shippingDays: Math.max(2, safeNumber(raw.shippingDays, 7)),
         trustScore: clamp(
@@ -719,12 +743,17 @@ const mapAmazonOriginalOffers = async (
           0.99,
         ),
         inStock: raw.inStock ?? true,
-        notes: raw.notes ?? '아마존 원서',
+        notes: `${raw.notes ?? (market === 'JP' ? '아마존 재팬 원서' : '아마존 원서')}${fxNote}`,
         url: raw.url,
         coverUrl: normalizeCoverUrl(raw.coverUrl),
         isOriginalEdition: true,
-        originalTitle,
+        originalTitle: originalTitle || originalSeedTitle,
         amazonUsedCondition,
+        market,
+        currency,
+        originalPrice: normalizedPrice,
+        originalShippingCost: normalizedShipping,
+        fxRate: currency === 'JPY' ? fxRate : undefined,
         matchConfidence: exact ? 1 : clamp(titleScore, 0, 1),
         crawledAt: new Date().toISOString(),
       } satisfies Offer;
@@ -732,7 +761,11 @@ const mapAmazonOriginalOffers = async (
     .filter((offer) => {
       if (!offer.inStock) return false;
       if (!preferences.includeOriginalNew && !offer.isUsed) return false;
-      if (offer.matchConfidence < 0.6) return false;
+      if (offer.market === 'JP') {
+        if (offer.matchConfidence < 0.35) return false;
+      } else if (offer.matchConfidence < 0.6) {
+        return false;
+      }
       if (!offer.isOriginalEdition) return false;
       return true;
     });
@@ -1546,8 +1579,14 @@ export const analyzeBookDecisions = async (
     globalWarnings.push('다른 판매처 수집 주소가 없어 알라딘 가격만 표시됩니다.');
   }
 
-  if (includeAmazonOriginal && !import.meta.env.VITE_AMAZON_CRAWLER_API_BASE) {
-    globalWarnings.push('아마존 수집 주소가 없어 아마존 원서 가격은 표시되지 않습니다.');
+  if (
+    includeAmazonOriginal &&
+    !import.meta.env.VITE_AMAZON_CRAWLER_API_BASE &&
+    !import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE
+  ) {
+    globalWarnings.push('아마존 수집 주소가 없어 아마존/아마존JP 원서 가격은 표시되지 않습니다.');
+  } else if (includeAmazonOriginal && !import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE) {
+    globalWarnings.push('Amazon JP 수집 주소가 없어 일본어 원서는 일부 누락될 수 있습니다.');
   }
 
   return {
@@ -1562,4 +1601,9 @@ export const analyzeBookDecisions = async (
   };
 };
 
-export const describeSource = (offer: Offer): string => SOURCE_LABELS[offer.source];
+export const describeSource = (offer: Offer): string => {
+  if (offer.source === 'AMAZON_CRAWLER' && offer.market === 'JP') {
+    return '아마존 JP';
+  }
+  return SOURCE_LABELS[offer.source];
+};

@@ -5,6 +5,7 @@ export type ConditionLevel = (typeof CONDITION_LEVELS)[number];
 export type OfferSource = 'ALADIN_API' | 'WEB_CRAWLER' | 'AMAZON_CRAWLER';
 export type OriginalSourceMode = 'ALADIN_ONLY' | 'AMAZON_ONLY' | 'BOTH';
 export type AmazonUsedConditionLevel = 'LIKE_NEW' | 'VERY_GOOD' | 'GOOD' | 'ACCEPTABLE';
+export type AmazonMarket = 'GLOBAL' | 'JP';
 export type DecisionAction = 'BUY_USED' | 'BUY_NEW' | 'WAIT';
 export type MarketSignal = 'BUY_NOW' | 'WAIT' | 'HOLD';
 export type ScarcityLevel = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -68,6 +69,11 @@ export interface Offer {
   isOriginalEdition?: boolean;
   originalTitle?: string;
   amazonUsedCondition?: AmazonUsedConditionLevel;
+  market?: AmazonMarket;
+  currency?: 'KRW' | 'JPY';
+  originalPrice?: number;
+  originalShippingCost?: number;
+  fxRate?: number;
   matchConfidence: number;
   crawledAt: string;
 }

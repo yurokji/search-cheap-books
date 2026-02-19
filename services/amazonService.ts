@@ -1,3 +1,5 @@
+import { AmazonMarket } from '../types';
+
 export interface AmazonOfferRaw {
   title: string;
   author?: string;
@@ -13,9 +15,12 @@ export interface AmazonOfferRaw {
   inStock?: boolean;
   url?: string;
   coverUrl?: string;
+  market?: AmazonMarket;
+  currency?: 'KRW' | 'JPY';
 }
 
 const AMAZON_CRAWLER_API_BASE = (import.meta.env.VITE_AMAZON_CRAWLER_API_BASE ?? '').trim();
+const AMAZON_JP_CRAWLER_API_BASE = (import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE ?? '').trim();
 
 const parseAmazonResponse = (payload: unknown): AmazonOfferRaw[] => {
   if (Array.isArray(payload)) return payload as AmazonOfferRaw[];
@@ -28,19 +33,48 @@ const parseAmazonResponse = (payload: unknown): AmazonOfferRaw[] => {
   return [];
 };
 
-export const fetchAmazonOffers = async (query: string): Promise<AmazonOfferRaw[]> => {
-  if (!AMAZON_CRAWLER_API_BASE) {
+const fetchAmazonOffersByMarket = async (
+  query: string,
+  apiBase: string,
+  market: AmazonMarket,
+): Promise<AmazonOfferRaw[]> => {
+  if (!apiBase) {
     return [];
   }
 
   try {
-    const url = `${AMAZON_CRAWLER_API_BASE.replace(/\/$/, '')}/offers?query=${encodeURIComponent(query)}`;
+    const url = `${apiBase.replace(/\/$/, '')}/offers?query=${encodeURIComponent(query)}&market=${market.toLowerCase()}`;
     const response = await fetch(url);
     if (!response.ok) return [];
 
     const payload = (await response.json()) as unknown;
-    return parseAmazonResponse(payload);
+    return parseAmazonResponse(payload).map((row) => ({
+      ...row,
+      market: (row.market as AmazonMarket | undefined) ?? market,
+      currency:
+        row.currency ??
+        ((((row.market as AmazonMarket | undefined) ?? market) === 'JP')
+          ? 'JPY'
+          : 'KRW'),
+    }));
   } catch {
     return [];
   }
+};
+
+export const fetchAmazonOffers = async (query: string): Promise<AmazonOfferRaw[]> => {
+  const [globalOffers, jpOffers] = await Promise.all([
+    fetchAmazonOffersByMarket(query, AMAZON_CRAWLER_API_BASE, 'GLOBAL'),
+    fetchAmazonOffersByMarket(query, AMAZON_JP_CRAWLER_API_BASE, 'JP'),
+  ]);
+
+  const merged = [...globalOffers, ...jpOffers];
+  const deduped = new Map<string, AmazonOfferRaw>();
+
+  for (const offer of merged) {
+    const key = [offer.market ?? 'GLOBAL', offer.url ?? '', offer.title ?? '', offer.sellerName ?? '', offer.price].join('|');
+    if (!deduped.has(key)) deduped.set(key, offer);
+  }
+
+  return [...deduped.values()];
 };

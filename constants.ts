@@ -55,6 +55,7 @@ export const VENDOR_TRUST_BASELINE: Record<string, number> = {
   YES24: 0.88,
   교보문고: 0.87,
   아마존: 0.82,
+  'Amazon JP': 0.82,
   개인판매자: 0.6,
 };
 
