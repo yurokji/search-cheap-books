@@ -9,7 +9,7 @@ _Last updated: 2026-02-19_
 - 임시 수정(실험 코드)은 태스크 완료 전 정리하고 커밋한다.
 
 ## 진행 현황 요약
-- 진행률: 75%
+- 진행률: 82%
 - 현재 집중 트랙: Amazon JP 일본어 원서 + 한국 번역서 연계 (MVP)
 
 ## Phase 0 - 문서 재정비
@@ -27,7 +27,7 @@ _Last updated: 2026-02-19_
 
 ## Phase 2 - 한국 번역서 <-> 일본어 원서 연계
 - [x] 연계 키 우선순위 정의 (ISBN > 원제 > 저자+출간년도) | Commit: `cf45680`
-- [ ] 자동 매핑 실패 시 수동 교정 UX 흐름 점검 (`IdentityOverrideModal`) | Commit: `-`
+- [x] 자동 매핑 실패 시 수동 교정 UX 흐름 점검 (`IdentityOverrideModal`) | Commit: `1d4ceaa`
 - [ ] 매핑 정확도 테스트셋 작성 (최소 30권) | Commit: `-`
 - [ ] 매핑 정확도 결과 문서화 (정확도, 실패 케이스) | Commit: `-`
 
@@ -37,7 +37,7 @@ _Last updated: 2026-02-19_
 - [ ] 모바일 결과 뷰 가독성 개선 | Commit: `-`
 
 ## 검증 체크리스트 (매 릴리즈 공통)
-- [x] `npm run build` 성공 | Commit: `42e8f54`
+- [x] `npm run build` 성공 | Commit: `1d4ceaa`
 - [ ] 대표 검색어 10개 수동 QA | Commit: `-`
 - [ ] 잘못 매칭 교정 흐름(책 정보 수정 버튼) 정상 동작 | Commit: `-`
 - [ ] 다권 최저가 계산식/셀러 링크 노출 확인 | Commit: `-`
