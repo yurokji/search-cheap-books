@@ -378,6 +378,9 @@ export const SearchAndPreferences: React.FC<Props> = ({
           <p className="mt-1 text-xs text-slate-500">
             책 제목 뒤 괄호 안에는 출판사, 저자, 옮긴이, 출판년도, ISBN을 자유롭게 넣을 수 있고 비운 항목은 자동으로 스킵됩니다.
           </p>
+          <p className="mt-1 text-xs text-slate-500">
+            괄호 안에서 콤마(,)를 누르면 현재 항목이 확정되고 다음 항목으로 넘어가며, Enter를 누르면 현재 줄이 확정됩니다.
+          </p>
         </div>
         <button
           onClick={onSearch}
@@ -526,6 +529,7 @@ export const SearchAndPreferences: React.FC<Props> = ({
               </div>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span>콤마(,)를 누르면 현재 항목이 확정되고 다음 항목으로 이동합니다. 비워둔 채 콤마를 누르면 스킵으로 처리됩니다.</span>
               <span>Enter를 누르면 이 줄이 확정되고 다음 번호 줄이 자동 생성됩니다.</span>
               <button
                 type="button"
