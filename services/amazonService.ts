@@ -21,6 +21,7 @@ export interface AmazonOfferRaw {
 
 const AMAZON_CRAWLER_API_BASE = (import.meta.env.VITE_AMAZON_CRAWLER_API_BASE ?? '').trim();
 const AMAZON_JP_CRAWLER_API_BASE = (import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE ?? '').trim();
+const SHARED_CRAWLER_API_BASE = (import.meta.env.VITE_CRAWLER_API_BASE ?? '').trim();
 
 const parseAmazonResponse = (payload: unknown): AmazonOfferRaw[] => {
   if (Array.isArray(payload)) return payload as AmazonOfferRaw[];
@@ -63,9 +64,12 @@ const fetchAmazonOffersByMarket = async (
 };
 
 export const fetchAmazonOffers = async (query: string): Promise<AmazonOfferRaw[]> => {
+  const globalBase = AMAZON_CRAWLER_API_BASE || SHARED_CRAWLER_API_BASE;
+  const jpBase = AMAZON_JP_CRAWLER_API_BASE || SHARED_CRAWLER_API_BASE;
+
   const [globalOffers, jpOffers] = await Promise.all([
-    fetchAmazonOffersByMarket(query, AMAZON_CRAWLER_API_BASE, 'GLOBAL'),
-    fetchAmazonOffersByMarket(query, AMAZON_JP_CRAWLER_API_BASE, 'JP'),
+    fetchAmazonOffersByMarket(query, globalBase, 'GLOBAL'),
+    fetchAmazonOffersByMarket(query, jpBase, 'JP'),
   ]);
 
   const merged = [...globalOffers, ...jpOffers];

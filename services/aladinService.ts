@@ -49,6 +49,8 @@ const ALADIN_API_BASE = '/aladin-api';
 
 const getApiKey = () => (import.meta.env.VITE_ALADIN_TTB_KEY ?? '').trim();
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -65,20 +67,45 @@ const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T
 
 const requestAladin = async (endpoint: string, params: URLSearchParams): Promise<AladinSearchResponse> => {
   const url = `${ALADIN_API_BASE}/${endpoint}?${params.toString()}`;
+  let lastError: Error | null = null;
 
-  const response = await withTimeout(fetch(url), 9000);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await withTimeout(fetch(url), 9000);
 
-  if (!response.ok) {
-    throw new Error(`알라딘 연결 오류 (${response.status})`);
+      if (!response.ok) {
+        if (response.status >= 500 && attempt < 2) {
+          await sleep(200 * (attempt + 1));
+          continue;
+        }
+        throw new Error(`알라딘 연결 오류 (${response.status})`);
+      }
+
+      const data = (await response.json()) as AladinSearchResponse;
+
+      if (data.errorCode) {
+        throw new Error(data.errorMessage || `알라딘 오류 코드: ${data.errorCode}`);
+      }
+
+      return data;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastError = error instanceof Error ? error : new Error(message);
+
+      if (attempt < 2) {
+        const retryable =
+          message.includes('알라딘 응답이 늦어') ||
+          message.includes('알라딘 연결 오류 (500)') ||
+          message.includes('Failed to fetch');
+        if (retryable) {
+          await sleep(250 * (attempt + 1));
+          continue;
+        }
+      }
+    }
   }
 
-  const data = (await response.json()) as AladinSearchResponse;
-
-  if (data.errorCode) {
-    throw new Error(data.errorMessage || `알라딘 오류 코드: ${data.errorCode}`);
-  }
-
-  return data;
+  throw lastError ?? new Error('알라딘 연결 오류');
 };
 
 export const searchAladinItems = async (

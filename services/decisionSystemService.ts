@@ -1628,6 +1628,7 @@ export const analyzeBookDecisions = async (
       let crawlerOffers: Offer[] = [];
       let amazonOffers: Offer[] = [];
       let nearTitles: string[] = [];
+      let fetchFailed = false;
 
       try {
         const [aladinResult, crawlerResult] = await Promise.all([
@@ -1653,6 +1654,7 @@ export const analyzeBookDecisions = async (
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        fetchFailed = true;
         globalWarnings.push(`${query.raw}: 책 정보를 불러오지 못했습니다. (${message})`);
       }
 
@@ -1669,6 +1671,7 @@ export const analyzeBookDecisions = async (
         override,
         nearTitles,
         offers: filtered,
+        fetchFailed,
         sourceStats: {
           aladinApiOffers: aladinOffers.length,
           crawlerOffers: filtered.filter((offer) => offer.source === 'WEB_CRAWLER').length,
@@ -1678,9 +1681,11 @@ export const analyzeBookDecisions = async (
     }),
   );
 
-  const decisions = offersByQuery.map(({ query, offers, override, nearTitles }) => {
+  const decisions = offersByQuery.map(({ query, offers, override, nearTitles, fetchFailed }) => {
     if (!offers.length) {
-      if (override?.isbn13) {
+      if (fetchFailed) {
+        // 이미 상세 오류를 경고로 표시했으므로 중복 안내를 막는다.
+      } else if (override?.isbn13) {
         globalWarnings.push(
           `${query.raw}: 입력한 ISBN(${override.isbn13})과 맞는 책을 찾지 못했습니다. 번호를 다시 확인해 주세요.`,
         );
@@ -1723,10 +1728,15 @@ export const analyzeBookDecisions = async (
   if (
     includeAmazonOriginal &&
     !import.meta.env.VITE_AMAZON_CRAWLER_API_BASE &&
-    !import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE
+    !import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE &&
+    !import.meta.env.VITE_CRAWLER_API_BASE
   ) {
     globalWarnings.push('아마존 수집 주소가 없어 아마존/아마존JP 원서 가격은 표시되지 않습니다.');
-  } else if (includeAmazonOriginal && !import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE) {
+  } else if (
+    includeAmazonOriginal &&
+    !import.meta.env.VITE_AMAZON_JP_CRAWLER_API_BASE &&
+    !import.meta.env.VITE_CRAWLER_API_BASE
+  ) {
     globalWarnings.push('Amazon JP 수집 주소가 없어 일본어 원서는 일부 누락될 수 있습니다.');
   }
 
