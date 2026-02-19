@@ -9,13 +9,13 @@ _Last updated: 2026-02-19_
 - 임시 수정(실험 코드)은 태스크 완료 전 정리하고 커밋한다.
 
 ## 진행 현황 요약
-- 진행률: 0%
+- 진행률: 20%
 - 현재 집중 트랙: Amazon JP 일본어 원서 + 한국 번역서 연계 (MVP)
 
 ## Phase 0 - 문서 재정비
-- [x] 프로젝트 개요 문서 재작성 (`PROJECT_OVERVIEW.md`) | Commit: `TBD`
-- [x] 태스크 보드 문서 신설 (`TASK_BOARD.md`) | Commit: `TBD`
-- [x] 에이전트 핸드오프 문서 신설 (`AGENT_HANDOFF.md`) | Commit: `TBD`
+- [x] 프로젝트 개요 문서 재작성 (`PROJECT_OVERVIEW.md`) | Commit: `1629e8c`
+- [x] 태스크 보드 문서 신설 (`TASK_BOARD.md`) | Commit: `1629e8c`
+- [x] 에이전트 핸드오프 문서 신설 (`AGENT_HANDOFF.md`) | Commit: `1629e8c`
 
 ## Phase 1 - Amazon JP 연동 MVP
 - [ ] Amazon JP 수집 엔드포인트 스펙 반영 (`services/amazonService.ts`) | Commit: `-`
