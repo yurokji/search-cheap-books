@@ -28,6 +28,9 @@ _Last updated: 2026-02-19_
 ## Phase 2 - 한국 번역서 <-> 일본어 원서 연계
 - [x] 연계 키 우선순위 정의 (ISBN > 원제 > 저자+출간년도) | Commit: `cf45680`
 - [x] 자동 매핑 실패 시 수동 교정 UX 흐름 점검 (`IdentityOverrideModal`) | Commit: `1d4ceaa`
+- [ ] 원제 미제공 번역서의 원서명 자동 추정 fallback 구현 (Google Books/Open Library) | Commit: `-`
+- [ ] 원서 후보 확신도(High/Medium/Low) 산출 및 노출 | Commit: `-`
+- [ ] 원서 추정 실패 시 사용자 선택 후보 UI 연결 (`IdentityOverrideModal`) | Commit: `-`
 - [ ] 매핑 정확도 테스트셋 작성 (최소 30권) | Commit: `-`
 - [ ] 매핑 정확도 결과 문서화 (정확도, 실패 케이스) | Commit: `-`
 
