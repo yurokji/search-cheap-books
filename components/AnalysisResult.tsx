@@ -8,9 +8,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { BUNDLE_FRIENDLY_VENDORS, CONDITION_DISPLAY_LABEL, formatCurrency, toPercent } from '../constants';
+import { CONDITION_DISPLAY_LABEL, formatCurrency, toPercent } from '../constants';
 import { BookDecision, DecisionResult, Offer, SearchExecutionStats } from '../types';
-import { describeSource } from '../services/decisionSystemService';
+import { allocateBundledShipping, describeSource } from '../services/decisionSystemService';
 
 interface Props {
   result: DecisionResult;
@@ -81,38 +81,6 @@ const normalizeMetric = (value: number, min: number, max: number, reverse = fals
   const normalized = (value - min) / (max - min);
   const v = reverse ? 1 - normalized : normalized;
   return Math.max(0, Math.min(1, v));
-};
-
-const allocateBundledShipping = (offers: Offer[]) => {
-  const grouped = new Map<string, Offer[]>();
-  for (const offer of offers) {
-    const group = grouped.get(offer.vendor) ?? [];
-    group.push(offer);
-    grouped.set(offer.vendor, group);
-  }
-
-  const allocation = new Map<string, number>();
-  for (const [vendor, group] of grouped.entries()) {
-    if (group.length === 1) {
-      allocation.set(group[0].id, group[0].shippingCost);
-      continue;
-    }
-
-    if (BUNDLE_FRIENDLY_VENDORS.has(vendor)) {
-      const sorted = [...group].sort((a, b) => b.shippingCost - a.shippingCost);
-      const anchor = sorted[0];
-      allocation.set(anchor.id, anchor.shippingCost);
-      for (const offer of sorted.slice(1)) {
-        allocation.set(offer.id, Math.round(offer.shippingCost * 0.35));
-      }
-      continue;
-    }
-
-    for (const offer of group) {
-      allocation.set(offer.id, offer.shippingCost);
-    }
-  }
-  return allocation;
 };
 
 const averageConditionLabel = (value: number) => {
@@ -234,11 +202,15 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
       {bundle && (
         <div className="rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 via-cyan-50 to-white p-5">
           <h3 className="mb-2 text-lg font-bold text-teal-900">여러 권 한꺼번에 살 때 최저가</h3>
-          <div className="grid gap-3 text-sm text-teal-900 md:grid-cols-4">
+          <div className="grid gap-3 text-sm text-teal-900 md:grid-cols-5">
             <div className="rounded-lg border border-teal-100 bg-white p-3">도서 합계: {formatCurrency(bundle.subtotal)}</div>
             <div className="rounded-lg border border-teal-100 bg-white p-3">묶음 배송비: {formatCurrency(bundle.shipping)}</div>
             <div className="rounded-lg border border-teal-200 bg-teal-900 p-3 font-semibold text-white">총액: {formatCurrency(bundle.total)}</div>
             <div className="rounded-lg border border-teal-100 bg-white p-3">절감액: {formatCurrency(bundle.savingsVsIndividual)}</div>
+            <div className="rounded-lg border border-teal-100 bg-white p-3">
+              탐색 조합: {bundle.scannedCombinations}개
+              {bundle.truncatedByCap ? <span className="ml-1 text-xs text-amber-700">(상한 적용)</span> : null}
+            </div>
           </div>
 
           <div className="mt-3 rounded-xl border border-teal-200 bg-white p-3">
@@ -270,6 +242,16 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
               <p key={`${line}-${idx}`}>• {line}</p>
             ))}
           </div>
+
+          {bundle.nextBestCandidate && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">차선책(품절 대비)</p>
+              <p>
+                2순위 총액 {formatCurrency(bundle.nextBestCandidate.total)} · 최적안 대비{' '}
+                {formatCurrency(bundle.nextBestCandidate.savingsVsBest)} 추가
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 overflow-x-auto rounded-xl border border-teal-200 bg-white">
             <table className="min-w-[1060px] w-full text-sm">
@@ -384,6 +366,7 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
       <div className="space-y-5">
         {result.decisions.map((decision) => {
           const recommendedOffer = findRecommendedOffer(decision.consideredOffers, decision.recommendedOfferId);
+          const nextBestOffer = findRecommendedOffer(decision.consideredOffers, decision.nextBestOfferId);
           const scoreMap = new Map(decision.scoreBreakdown.map((item) => [item.offerId, item]));
           const sortedOffers = [...decision.consideredOffers].sort((a, b) => {
             const scoreA = scoreMap.get(a.id)?.totalScore ?? 0;
@@ -459,6 +442,14 @@ export const AnalysisResult: React.FC<Props> = ({ result, stats, onEditIdentity 
                             {formatCurrency(recommendedOffer.price + recommendedOffer.shippingCost)}
                           </p>
                           <p className="text-xs text-slate-500">{describeSource(recommendedOffer)} · {recommendedOffer.shippingDays}일</p>
+                          {nextBestOffer && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              차선책: {nextBestOffer.vendor} / {nextBestOffer.sellerName}{' '}
+                              {decision.nextBestDelta !== undefined
+                                ? `(총액 ${decision.nextBestDelta >= 0 ? '+' : '-'}${formatCurrency(Math.abs(decision.nextBestDelta))})`
+                                : ''}
+                            </p>
+                          )}
                         </>
                       ) : (
                         <p className="text-slate-500">추천할 판매처를 찾지 못했어요</p>

@@ -153,6 +153,113 @@ const normalizeIsbn13 = (value: string | undefined): string | undefined => {
   return normalized.length >= 10 ? normalized.toUpperCase() : undefined;
 };
 
+interface ShippingPolicy {
+  freeShippingThreshold: number | null;
+  bundleAdditionalRate: number;
+  minAdditionalShipping: number;
+}
+
+const DEFAULT_SHIPPING_POLICY: ShippingPolicy = {
+  freeShippingThreshold: null,
+  bundleAdditionalRate: 1,
+  minAdditionalShipping: 0,
+};
+
+const VENDOR_SHIPPING_POLICY: Record<string, ShippingPolicy> = {
+  알라딘: {
+    freeShippingThreshold: 15000,
+    bundleAdditionalRate: 0.35,
+    minAdditionalShipping: 700,
+  },
+  '알라딘 중고서점': {
+    freeShippingThreshold: null,
+    bundleAdditionalRate: 0.45,
+    minAdditionalShipping: 900,
+  },
+  YES24: {
+    freeShippingThreshold: 15000,
+    bundleAdditionalRate: 0.4,
+    minAdditionalShipping: 800,
+  },
+  교보문고: {
+    freeShippingThreshold: 15000,
+    bundleAdditionalRate: 0.4,
+    minAdditionalShipping: 800,
+  },
+  Amazon: {
+    freeShippingThreshold: null,
+    bundleAdditionalRate: 1,
+    minAdditionalShipping: 0,
+  },
+  아마존: {
+    freeShippingThreshold: null,
+    bundleAdditionalRate: 1,
+    minAdditionalShipping: 0,
+  },
+};
+
+const buildSellerGroupKey = (offer: Offer) => `${offer.vendor}::${offer.sellerName}`.replace(/\s+/g, ' ').trim().toLowerCase();
+
+const resolveShippingPolicy = (vendor: string): ShippingPolicy => {
+  const policy = VENDOR_SHIPPING_POLICY[vendor];
+  if (policy) return policy;
+
+  if (BUNDLE_FRIENDLY_VENDORS.has(vendor)) {
+    return {
+      freeShippingThreshold: 15000,
+      bundleAdditionalRate: 0.4,
+      minAdditionalShipping: 800,
+    };
+  }
+
+  return DEFAULT_SHIPPING_POLICY;
+};
+
+const applySingleShippingPolicy = (vendor: string, price: number, listedShippingCost: number): number => {
+  const baseShipping = Math.max(0, safeNumber(listedShippingCost, 0));
+  const policy = resolveShippingPolicy(vendor);
+
+  if (policy.freeShippingThreshold !== null && price >= policy.freeShippingThreshold) {
+    return 0;
+  }
+
+  return baseShipping;
+};
+
+const computeDataCompleteness = (offer: Offer): number => {
+  const checkpoints = [
+    Boolean(offer.isbn13),
+    Boolean(offer.author),
+    Boolean(offer.coverUrl),
+    Boolean(offer.url),
+    Number.isFinite(offer.shippingDays),
+    Number.isFinite(offer.price),
+    Number.isFinite(offer.shippingCost),
+  ];
+  const hits = checkpoints.filter(Boolean).length;
+  return hits / checkpoints.length;
+};
+
+const computePriceStability = (offers: Offer[]): number => {
+  if (offers.length <= 1) return 0.7;
+  const totals = offers.map((offer) => offer.price + offer.shippingCost);
+  const mean = totals.reduce((sum, value) => sum + value, 0) / totals.length;
+  if (mean <= 0) return 0.5;
+
+  const variance = totals.reduce((sum, value) => sum + (value - mean) ** 2, 0) / totals.length;
+  const stdDev = Math.sqrt(variance);
+  const coefficient = stdDev / mean;
+  return clamp(1 - coefficient * 1.6, 0, 1);
+};
+
+const computeFreshness = (crawledAt: string): number => {
+  const ts = Date.parse(crawledAt);
+  if (!Number.isFinite(ts)) return 0.45;
+
+  const ageHours = Math.max(0, (Date.now() - ts) / (1000 * 60 * 60));
+  return clamp(1 - ageHours / 72, 0.25, 1);
+};
+
 const sanitizeIdentityOverride = (override?: BookIdentityOverride): BookIdentityOverride | undefined => {
   if (!override) return undefined;
 
@@ -227,7 +334,7 @@ const createOfferFromAladinItem = (
       conditionConfidence: 0.97,
       isUsed: false,
       price: listPrice,
-      shippingCost: listPrice >= 15000 ? 0 : 2500,
+      shippingCost: applySingleShippingPolicy('알라딘', listPrice, 2500),
       shippingDays: 1,
       trustScore: 0.96,
       inStock: !item.stockStatus,
@@ -296,7 +403,7 @@ const createOfferFromAladinItem = (
       conditionConfidence: 0.78,
       isUsed: true,
       price: minPrice,
-      shippingCost: 2500,
+      shippingCost: applySingleShippingPolicy(channel.vendor, minPrice, 2500),
       shippingDays: channel.shippingDays,
       trustScore: channel.trustScore,
       inStock: true,
@@ -532,7 +639,11 @@ const mapCrawlerOffers = async (query: ParsedQuery, override?: BookIdentityOverr
         conditionConfidence: inferred.confidence,
         isUsed: raw.isUsed ?? true,
         price: Math.max(500, safeNumber(raw.price, 0)),
-        shippingCost: Math.max(0, safeNumber(raw.shippingCost, 2500)),
+        shippingCost: applySingleShippingPolicy(
+          raw.vendor || '개인판매자',
+          Math.max(500, safeNumber(raw.price, 0)),
+          Math.max(0, safeNumber(raw.shippingCost, 2500)),
+        ),
         shippingDays: Math.max(1, safeNumber(raw.shippingDays, 3)),
         trustScore: clamp(
           safeNumber(raw.trustScore, VENDOR_TRUST_BASELINE[raw.vendor || ''] ?? 0.68),
@@ -596,7 +707,11 @@ const mapAmazonOriginalOffers = async (
         conditionConfidence: inferred.confidence,
         isUsed,
         price: Math.max(1000, safeNumber(raw.price, 0)),
-        shippingCost: Math.max(0, safeNumber(raw.shippingCost, 0)),
+        shippingCost: applySingleShippingPolicy(
+          raw.vendor || 'Amazon',
+          Math.max(1000, safeNumber(raw.price, 0)),
+          Math.max(0, safeNumber(raw.shippingCost, 0)),
+        ),
         shippingDays: Math.max(2, safeNumber(raw.shippingDays, 7)),
         trustScore: clamp(
           safeNumber(raw.notes?.includes('fulfilled') ? 0.88 : 0.78, 0.78),
@@ -999,14 +1114,28 @@ const buildDecision = (
   const action = recommendedOffer.isUsed ? 'BUY_USED' : 'BUY_NEW';
 
   const scoreGap = secondBreakdown ? recommendedBreakdown.totalScore - secondBreakdown.totalScore : 0.25;
-  const countFactor = clamp(consideredOffers.length / 7, 0, 1);
+  const countFactor = clamp(consideredOffers.length / 8, 0, 1);
   const gapFactor = clamp(scoreGap * 4, 0, 1);
   const dataQuality = clamp(
     (recommendedOffer.matchConfidence + recommendedOffer.conditionConfidence + recommendedOffer.trustScore) / 3,
     0,
     1,
   );
-  const confidence = clamp(countFactor * 0.35 + gapFactor * 0.35 + dataQuality * 0.3, 0, 1);
+  const completenessFactor = computeDataCompleteness(recommendedOffer);
+  const freshnessFactor = computeFreshness(recommendedOffer.crawledAt);
+  const stabilityFactor = computePriceStability(consideredOffers);
+  const availabilityFactor = clamp(consideredOffers.length / Math.max(offers.length, 1), 0, 1);
+  const confidence = clamp(
+    countFactor * 0.18 +
+      gapFactor * 0.24 +
+      dataQuality * 0.2 +
+      completenessFactor * 0.12 +
+      freshnessFactor * 0.13 +
+      stabilityFactor * 0.08 +
+      availabilityFactor * 0.05,
+    0,
+    1,
+  );
 
   const recommendedTotal = recommendedOffer.price + recommendedOffer.shippingCost;
   const secondTotal = secondOffer ? secondOffer.price + secondOffer.shippingCost : null;
@@ -1025,9 +1154,15 @@ const buildDecision = (
     reasoning.push(`감점 반영 항목: ${recommendedBreakdown.penalties.join(' · ')}`);
   }
 
+  if (freshnessFactor < 0.45) {
+    reasoning.push('수집 시점이 오래된 항목이 있어 실제 결제 직전 가격/재고 재확인이 필요합니다.');
+  }
+
   const tradeoffs = [
     secondOffer
-      ? `두 번째 선택(${secondOffer.vendor})도 괜찮지만 총비용이 ${formatCurrency(Math.abs(delta))} 더 듭니다.`
+      ? delta >= 0
+        ? `두 번째 선택(${secondOffer.vendor})도 괜찮지만 총비용이 ${formatCurrency(Math.abs(delta))} 더 듭니다.`
+        : `두 번째 선택(${secondOffer.vendor})이 가격은 ${formatCurrency(Math.abs(delta))} 더 싸지만 종합점수가 낮습니다.`
       : '비교 가능한 다른 선택지가 많지 않습니다.',
     preferences.strictCondition
       ? `설정한 최소 품질(${CONDITION_DISPLAY_LABEL[preferences.minCondition]})보다 낮은 책은 제외했습니다.`
@@ -1043,6 +1178,12 @@ const buildDecision = (
   }
   if (recommendedOffer.trustScore < 0.7) {
     risks.push('판매자 평판이 낮아 상세 페이지 확인이 필요합니다.');
+  }
+  if (completenessFactor < 0.6) {
+    risks.push('ISBN/표지/링크 같은 메타데이터가 일부 비어 있어 매칭 오차 가능성이 있습니다.');
+  }
+  if (freshnessFactor < 0.45) {
+    risks.push('수집 시점이 오래되어 재고 품절 또는 가격 변경 가능성이 있습니다.');
   }
   if (risks.length === 0) {
     risks.push('눈에 띄는 큰 주의점은 없습니다.');
@@ -1065,40 +1206,53 @@ const buildDecision = (
     offers: sortedOffers,
     consideredOffers,
     recommendedOfferId: recommendedOffer.id,
+    nextBestOfferId: secondOffer?.id,
+    nextBestDelta: secondTotal !== null ? secondTotal - recommendedTotal : undefined,
     scoreBreakdown,
     priceForecast: forecast,
   };
 };
 
-const allocateBundledShipping = (offers: Offer[]): Map<string, number> => {
+export const allocateBundledShipping = (offers: Offer[]): Map<string, number> => {
   const grouped = new Map<string, Offer[]>();
 
   for (const offer of offers) {
-    const group = grouped.get(offer.vendor) ?? [];
+    const key = buildSellerGroupKey(offer);
+    const group = grouped.get(key) ?? [];
     group.push(offer);
-    grouped.set(offer.vendor, group);
+    grouped.set(key, group);
   }
 
   const allocation = new Map<string, number>();
 
-  for (const [vendor, group] of grouped.entries()) {
-    if (group.length === 1) {
-      allocation.set(group[0].id, group[0].shippingCost);
+  for (const group of grouped.values()) {
+    if (group.length === 0) continue;
+    const primary = group[0];
+    const policy = resolveShippingPolicy(primary.vendor);
+    const subtotal = group.reduce((sum, offer) => sum + offer.price, 0);
+
+    if (policy.freeShippingThreshold !== null && subtotal >= policy.freeShippingThreshold) {
+      for (const offer of group) allocation.set(offer.id, 0);
       continue;
     }
 
-    if (BUNDLE_FRIENDLY_VENDORS.has(vendor)) {
-      const sorted = [...group].sort((a, b) => b.shippingCost - a.shippingCost);
-      const anchor = sorted[0];
-      allocation.set(anchor.id, anchor.shippingCost);
-      for (const offer of sorted.slice(1)) {
-        allocation.set(offer.id, Math.round(offer.shippingCost * 0.35));
+    if (group.length === 1 || policy.bundleAdditionalRate >= 1) {
+      for (const offer of group) {
+        allocation.set(offer.id, offer.shippingCost);
       }
       continue;
     }
 
-    for (const offer of group) {
-      allocation.set(offer.id, offer.shippingCost);
+    const sorted = [...group].sort((a, b) => b.shippingCost - a.shippingCost);
+    const anchor = sorted[0];
+    allocation.set(anchor.id, anchor.shippingCost);
+
+    for (const offer of sorted.slice(1)) {
+      const reduced = Math.max(
+        policy.minAdditionalShipping,
+        Math.round(Math.max(0, offer.shippingCost) * policy.bundleAdditionalRate),
+      );
+      allocation.set(offer.id, reduced);
     }
   }
 
@@ -1130,6 +1284,7 @@ const optimizeBundle = (decisions: BookDecision[]): BundleOptimization | undefin
   }
 
   const maxCombinations = 3000;
+  const theoreticalCombinations = candidatesByDecision.reduce((product, candidates) => product * candidates.length, 1);
   let scanned = 0;
   const combinations: Array<{
     offers: Offer[];
@@ -1230,15 +1385,25 @@ const optimizeBundle = (decisions: BookDecision[]): BundleOptimization | undefin
       savingsVsBest: Math.max(0, combo.total - total),
     };
   });
+  const nextBestCandidate = candidates[1];
+  const truncatedByCap = theoreticalCombinations > maxCombinations;
 
   const rationale = [
-    `가능한 조합 ${scanned}개를 비교해 가장 싼 조합을 골랐습니다.`,
+    `가능 조합 ${theoreticalCombinations}개 중 ${scanned}개를 비교해 가장 싼 조합을 골랐습니다.`,
     `판매처 ${vendorsUsed.length}곳으로 묶어 배송비를 줄였습니다.`,
     `비교용 다른 조합 ${Math.max(0, candidates.length - 1)}개도 함께 보여드립니다.`,
   ];
 
+  if (truncatedByCap) {
+    rationale.push(`조합 폭증을 막기 위해 최대 ${maxCombinations}개까지만 탐색했습니다.`);
+  }
+
   if (savingsVsIndividual > 0) {
     rationale.push(`각 책을 따로 샀을 때보다 ${formatCurrency(savingsVsIndividual)} 아꼈습니다.`);
+  }
+
+  if (nextBestCandidate) {
+    rationale.push(`최적안이 품절되면 2순위 조합(총 ${formatCurrency(nextBestCandidate.total)})으로 바로 전환할 수 있습니다.`);
   }
 
   return {
@@ -1248,8 +1413,11 @@ const optimizeBundle = (decisions: BookDecision[]): BundleOptimization | undefin
     total,
     savingsVsIndividual,
     vendorsUsed,
+    scannedCombinations: scanned,
+    truncatedByCap,
     rationale,
     candidates,
+    nextBestCandidate,
   };
 };
 

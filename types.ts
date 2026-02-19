@@ -124,6 +124,8 @@ export interface BookDecision {
   offers: Offer[];
   consideredOffers: Offer[];
   recommendedOfferId?: string;
+  nextBestOfferId?: string;
+  nextBestDelta?: number;
   scoreBreakdown: ScoreBreakdown[];
   priceForecast: PriceForecast;
 }
@@ -163,8 +165,11 @@ export interface BundleOptimization {
   total: number;
   savingsVsIndividual: number;
   vendorsUsed: string[];
+  scannedCombinations: number;
+  truncatedByCap: boolean;
   rationale: string[];
   candidates: BundleCandidate[];
+  nextBestCandidate?: BundleCandidate;
 }
 
 export interface DecisionResult {
