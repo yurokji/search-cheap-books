@@ -9,7 +9,7 @@ _Last updated: 2026-02-19_
 - 임시 수정(실험 코드)은 태스크 완료 전 정리하고 커밋한다.
 
 ## 진행 현황 요약
-- 진행률: 20%
+- 진행률: 65%
 - 현재 집중 트랙: Amazon JP 일본어 원서 + 한국 번역서 연계 (MVP)
 
 ## Phase 0 - 문서 재정비
@@ -18,12 +18,12 @@ _Last updated: 2026-02-19_
 - [x] 에이전트 핸드오프 문서 신설 (`AGENT_HANDOFF.md`) | Commit: `1629e8c`
 
 ## Phase 1 - Amazon JP 연동 MVP
-- [ ] Amazon JP 수집 엔드포인트 스펙 반영 (`services/amazonService.ts`) | Commit: `-`
-- [ ] Amazon JP 원서 오퍼를 결정 엔진에 통합 (`services/decisionSystemService.ts`) | Commit: `-`
-- [ ] Amazon JP 상태 텍스트 매핑 강화 (`condition -> LIKE_NEW/VERY_GOOD/GOOD/ACCEPTABLE`) | Commit: `-`
-- [ ] 환율 반영 구조 추가 (JPY -> KRW 변환 필드/표시) | Commit: `-`
-- [ ] UI에 원서 소스 선택에서 Amazon JP 라벨/설명 반영 (`components/SearchAndPreferences.tsx`) | Commit: `-`
-- [ ] 결과 카드/테이블에 Amazon JP 출처 배지 노출 확인 (`components/AnalysisResult.tsx`) | Commit: `-`
+- [x] Amazon JP 수집 엔드포인트 스펙 반영 (`services/amazonService.ts`) | Commit: `42e8f54`
+- [x] Amazon JP 원서 오퍼를 결정 엔진에 통합 (`services/decisionSystemService.ts`) | Commit: `42e8f54`
+- [x] Amazon JP 상태 텍스트 매핑 강화 (`condition -> LIKE_NEW/VERY_GOOD/GOOD/ACCEPTABLE`) | Commit: `42e8f54`
+- [x] 환율 반영 구조 추가 (JPY -> KRW 변환 필드/표시) | Commit: `42e8f54`
+- [x] UI에 원서 소스 선택에서 Amazon JP 라벨/설명 반영 (`components/SearchAndPreferences.tsx`) | Commit: `42e8f54`
+- [x] 결과 카드/테이블에 Amazon JP 출처 배지 노출 확인 (`components/AnalysisResult.tsx`) | Commit: `42e8f54`
 
 ## Phase 2 - 한국 번역서 <-> 일본어 원서 연계
 - [ ] 연계 키 우선순위 정의 (ISBN > 원제 > 저자+출간년도) | Commit: `-`
@@ -37,7 +37,7 @@ _Last updated: 2026-02-19_
 - [ ] 모바일 결과 뷰 가독성 개선 | Commit: `-`
 
 ## 검증 체크리스트 (매 릴리즈 공통)
-- [ ] `npm run build` 성공 | Commit: `-`
+- [x] `npm run build` 성공 | Commit: `42e8f54`
 - [ ] 대표 검색어 10개 수동 QA | Commit: `-`
 - [ ] 잘못 매칭 교정 흐름(책 정보 수정 버튼) 정상 동작 | Commit: `-`
 - [ ] 다권 최저가 계산식/셀러 링크 노출 확인 | Commit: `-`
