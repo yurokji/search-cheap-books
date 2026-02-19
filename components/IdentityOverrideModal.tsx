@@ -65,12 +65,24 @@ export const IdentityOverrideModal: React.FC<Props> = ({ decision, isApplying, o
             현재 입력 키워드: <span className="font-semibold text-slate-800">{decision.queryTitle}</span>
           </div>
 
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+            <p className="font-semibold">자동 연계 순서</p>
+            <p className="mt-1">1) ISBN 일치 2) 원제(또는 제목) 일치 3) 저자 + 출간년도 근접</p>
+            <p className="mt-1">원서가 다르게 붙으면 ISBN을 먼저 넣고, 없으면 제목/저자를 넣어 다시 찾아주세요.</p>
+          </div>
+
+          {decision.consideredOffers.length === 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              지금은 자동 매핑이 충분히 맞지 않아 추천을 만들지 못했습니다. ISBN 또는 정확한 저자명을 넣어 다시 시도해 주세요.
+            </div>
+          )}
+
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">제목</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="예: 지식의 기초"
+              placeholder="예: 지식의 기초 / 進化論講義"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
             />
           </label>
@@ -81,7 +93,7 @@ export const IdentityOverrideModal: React.FC<Props> = ({ decision, isApplying, o
               <input
                 value={author}
                 onChange={(e) => setAuthor(e.target.value)}
-                placeholder="예: 나심 니콜라스 탈레브"
+                placeholder="예: 나심 니콜라스 탈레브 / 東野圭吾"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
               />
             </label>
