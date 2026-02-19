@@ -281,6 +281,135 @@ const sanitizeIdentityOverride = (override?: BookIdentityOverride): BookIdentity
   return { title, author, isbn13 };
 };
 
+interface OriginalLinkContext {
+  originalTitle: string | null;
+  sourceAuthor: string | null;
+  sourcePubYear: number | null;
+  isbnCandidates: string[];
+}
+
+type OriginalLinkPriority = 'ISBN' | 'TITLE' | 'AUTHOR_YEAR' | 'NONE';
+
+interface OriginalLinkResult {
+  matched: boolean;
+  priority: OriginalLinkPriority;
+  score: number;
+  reason: string;
+}
+
+const EMPTY_ORIGINAL_LINK_CONTEXT: OriginalLinkContext = {
+  originalTitle: null,
+  sourceAuthor: null,
+  sourcePubYear: null,
+  isbnCandidates: [],
+};
+
+const extractYear = (value: string | undefined): number | null => {
+  if (!value) return null;
+  const normalized = value.replace(/[^\d]/g, ' ');
+  const match = normalized.match(/\b(19|20)\d{2}\b/);
+  if (!match) return null;
+  const year = Number(match[0]);
+  return Number.isFinite(year) ? year : null;
+};
+
+const normalizePersonKey = (value: string | undefined): string =>
+  (value ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s'"`’‘,./\\|()[\]{}\-_:;!?~]/g, '');
+
+const buildOriginalLinkContext = (
+  options: {
+    originalTitle: string | null;
+    overrideIsbn?: string;
+    seedAuthor?: string;
+    seedPubDate?: string;
+    aladinOffers: Offer[];
+  },
+): OriginalLinkContext => {
+  const isbnCandidates = Array.from(
+    new Set(
+      [options.overrideIsbn, ...options.aladinOffers.filter((offer) => offer.isOriginalEdition).map((offer) => normalizeIsbn13(offer.isbn13))]
+        .filter((isbn): isbn is string => Boolean(isbn)),
+    ),
+  );
+
+  return {
+    originalTitle: options.originalTitle,
+    sourceAuthor: options.seedAuthor?.trim() || null,
+    sourcePubYear: extractYear(options.seedPubDate),
+    isbnCandidates,
+  };
+};
+
+const evaluateOriginalLink = (
+  raw: { isbn13?: string; author?: string; title?: string; notes?: string },
+  matchedTitle: string,
+  queryTitle: string,
+  context: OriginalLinkContext,
+): OriginalLinkResult => {
+  const rawIsbn = normalizeIsbn13(raw.isbn13);
+  if (rawIsbn && context.isbnCandidates.includes(rawIsbn)) {
+    return {
+      matched: true,
+      priority: 'ISBN',
+      score: 1,
+      reason: 'ISBN 일치',
+    };
+  }
+
+  const linkTitle = context.originalTitle || queryTitle;
+  const titleScore = computeTitleMatchConfidence(linkTitle, matchedTitle);
+  const exactTitle = isExactTitleMatch(linkTitle, matchedTitle);
+  if (exactTitle || titleScore >= 0.68) {
+    return {
+      matched: true,
+      priority: 'TITLE',
+      score: clamp(exactTitle ? 1 : titleScore, 0.7, 1),
+      reason: exactTitle ? '원제 정확 일치' : `원제 유사도 ${Math.round(titleScore * 100)}점`,
+    };
+  }
+
+  const sourceAuthorKey = normalizePersonKey(context.sourceAuthor || undefined);
+  const rawAuthorKey = normalizePersonKey(raw.author);
+  const authorMatched =
+    Boolean(sourceAuthorKey) &&
+    Boolean(rawAuthorKey) &&
+    (rawAuthorKey.includes(sourceAuthorKey) || sourceAuthorKey.includes(rawAuthorKey));
+
+  if (!authorMatched) {
+    return {
+      matched: false,
+      priority: 'NONE',
+      score: clamp(titleScore, 0, 1),
+      reason: '저자 조건 불일치',
+    };
+  }
+
+  const rawPubYear = extractYear(`${raw.notes ?? ''} ${raw.title ?? ''}`);
+  const yearMatched =
+    context.sourcePubYear !== null &&
+    rawPubYear !== null &&
+    Math.abs(context.sourcePubYear - rawPubYear) <= 1;
+
+  if (context.sourcePubYear !== null && rawPubYear !== null && !yearMatched) {
+    return {
+      matched: false,
+      priority: 'NONE',
+      score: clamp(titleScore, 0, 1),
+      reason: `저자는 일치하지만 출간년도 불일치 (${context.sourcePubYear} vs ${rawPubYear})`,
+    };
+  }
+
+  return {
+    matched: true,
+    priority: 'AUTHOR_YEAR',
+    score: yearMatched ? 0.76 : 0.7,
+    reason: yearMatched ? '저자+출간년도 연계 성공' : '저자 연계 성공(출간년도 정보 부족)',
+  };
+};
+
 const extractOriginalTitle = (value: string | undefined): string | null => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -437,7 +566,7 @@ const mapAladinOffers = async (
   override: BookIdentityOverride | undefined,
   preferences: UserPreferences,
   options: { includeOriginalFromAladin?: boolean } = {},
-): Promise<{ offers: Offer[]; originalTitle: string | null }> => {
+): Promise<{ offers: Offer[]; originalTitle: string | null; originalLinkContext: OriginalLinkContext }> => {
   const includeOriginalFromAladin = options.includeOriginalFromAladin ?? true;
   const sanitizedOverride = sanitizeIdentityOverride(override);
   const overrideIsbn = normalizeIsbn13(sanitizedOverride?.isbn13);
@@ -528,7 +657,7 @@ const mapAladinOffers = async (
         : fallbackRows.slice(0, 3));
 
   if (candidates.length === 0) {
-    return { offers: [], originalTitle: null };
+    return { offers: [], originalTitle: null, originalLinkContext: EMPTY_ORIGINAL_LINK_CONTEXT };
   }
 
   const offers: Offer[] = [];
@@ -561,6 +690,7 @@ const mapAladinOffers = async (
   }
 
   let originalTitle: string | null = null;
+  const seedItem = candidates[0]?.item as { author?: string; pubDate?: string } | undefined;
 
   if (preferences.includeOriginalEditions) {
     originalTitle = await resolveOriginalTitleFromItem(candidates[0]?.item as Record<string, unknown> | undefined);
@@ -598,8 +728,15 @@ const mapAladinOffers = async (
   }
 
   const finalOffers = preferences.originalOnly ? offers.filter((offer) => offer.isOriginalEdition) : offers;
+  const originalLinkContext = buildOriginalLinkContext({
+    originalTitle,
+    overrideIsbn,
+    seedAuthor: seedItem?.author,
+    seedPubDate: seedItem?.pubDate,
+    aladinOffers: offers,
+  });
 
-  return { offers: finalOffers, originalTitle };
+  return { offers: finalOffers, originalTitle, originalLinkContext };
 };
 
 const mapCrawlerOffers = async (query: ParsedQuery, override?: BookIdentityOverride): Promise<Offer[]> => {
@@ -686,9 +823,10 @@ const mapCrawlerOffers = async (query: ParsedQuery, override?: BookIdentityOverr
 
 const mapAmazonOriginalOffers = async (
   query: ParsedQuery,
-  originalTitle: string | null,
+  originalLinkContext: OriginalLinkContext,
   preferences: UserPreferences,
 ): Promise<Offer[]> => {
+  const originalTitle = originalLinkContext.originalTitle;
   const originalSeedTitle = originalTitle || query.raw;
   if (!originalSeedTitle) return [];
   const rows = await fetchAmazonOffers(originalSeedTitle);
@@ -696,11 +834,10 @@ const mapAmazonOriginalOffers = async (
   return rows
     .map((raw) => {
       const matchedTitle = raw.title?.trim() || originalSeedTitle;
-      const titleScore = computeTitleMatchConfidence(originalSeedTitle, matchedTitle);
-      const exact = isExactTitleMatch(originalSeedTitle, matchedTitle);
       const inferred = inferCondition(raw.conditionText, raw.notes, '중');
       const isUsed = raw.isUsed ?? true;
       const amazonUsedCondition = normalizeAmazonUsedCondition(raw.conditionText, inferred.condition);
+      const linkResult = evaluateOriginalLink(raw, matchedTitle, query.raw, originalLinkContext);
       const market = raw.market ?? 'GLOBAL';
       const currency = raw.currency ?? (market === 'JP' ? 'JPY' : 'KRW');
       const fxRate = currency === 'JPY' ? Math.max(1, DEFAULT_JPY_KRW_RATE) : 1;
@@ -714,6 +851,7 @@ const mapAmazonOriginalOffers = async (
         currency === 'JPY'
           ? ` (JPY ${normalizedPrice.toLocaleString('ja-JP')} + 배송 ${normalizedShipping.toLocaleString('ja-JP')} 환산, 1엔=${fxRate.toFixed(2)}원)`
           : '';
+      const linkNote = `[연계 ${linkResult.priority}] ${linkResult.reason}`;
 
       return {
         id: generateId('offer'),
@@ -743,7 +881,7 @@ const mapAmazonOriginalOffers = async (
           0.99,
         ),
         inStock: raw.inStock ?? true,
-        notes: `${raw.notes ?? (market === 'JP' ? '아마존 재팬 원서' : '아마존 원서')}${fxNote}`,
+        notes: `${raw.notes ?? (market === 'JP' ? '아마존 재팬 원서' : '아마존 원서')}${fxNote} · ${linkNote}`,
         url: raw.url,
         coverUrl: normalizeCoverUrl(raw.coverUrl),
         isOriginalEdition: true,
@@ -754,15 +892,18 @@ const mapAmazonOriginalOffers = async (
         originalPrice: normalizedPrice,
         originalShippingCost: normalizedShipping,
         fxRate: currency === 'JPY' ? fxRate : undefined,
-        matchConfidence: exact ? 1 : clamp(titleScore, 0, 1),
+        matchConfidence: linkResult.score,
         crawledAt: new Date().toISOString(),
       } satisfies Offer;
     })
     .filter((offer) => {
       if (!offer.inStock) return false;
       if (!preferences.includeOriginalNew && !offer.isUsed) return false;
+      if (!offer.notes?.includes('[연계 ISBN]') && !offer.notes?.includes('[연계 TITLE]') && !offer.notes?.includes('[연계 AUTHOR_YEAR]')) {
+        return false;
+      }
       if (offer.market === 'JP') {
-        if (offer.matchConfidence < 0.35) return false;
+        if (offer.matchConfidence < 0.68) return false;
       } else if (offer.matchConfidence < 0.6) {
         return false;
       }
@@ -1497,7 +1638,7 @@ export const analyzeBookDecisions = async (
         crawlerOffers = crawlerResult;
 
         if (includeAmazonOriginal) {
-          amazonOffers = await mapAmazonOriginalOffers(query, aladinResult.originalTitle, preferences);
+          amazonOffers = await mapAmazonOriginalOffers(query, aladinResult.originalLinkContext, preferences);
         }
 
         if (!override && aladinOffers.length === 0) {
