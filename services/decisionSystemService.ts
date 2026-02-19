@@ -287,6 +287,9 @@ interface OriginalLinkContext {
   sourceAuthor: string | null;
   sourcePubYear: number | null;
   isbnCandidates: string[];
+  fallbackSource?: 'GOOGLE_BOOKS' | 'OPEN_LIBRARY';
+  fallbackConfidence?: number;
+  fallbackReason?: string;
 }
 
 type OriginalLinkPriority = 'ISBN' | 'TITLE' | 'AUTHOR_YEAR' | 'NONE';
@@ -304,6 +307,13 @@ const EMPTY_ORIGINAL_LINK_CONTEXT: OriginalLinkContext = {
   sourcePubYear: null,
   isbnCandidates: [],
 };
+
+interface ResolvedOriginalTitle {
+  title: string | null;
+  fallbackSource?: 'GOOGLE_BOOKS' | 'OPEN_LIBRARY';
+  fallbackConfidence?: number;
+  fallbackReason?: string;
+}
 
 const extractYear = (value: string | undefined): number | null => {
   if (!value) return null;
@@ -327,6 +337,9 @@ const buildOriginalLinkContext = (
     seedAuthor?: string;
     seedPubDate?: string;
     aladinOffers: Offer[];
+    fallbackSource?: 'GOOGLE_BOOKS' | 'OPEN_LIBRARY';
+    fallbackConfidence?: number;
+    fallbackReason?: string;
   },
 ): OriginalLinkContext => {
   const isbnCandidates = Array.from(
@@ -341,6 +354,9 @@ const buildOriginalLinkContext = (
     sourceAuthor: options.seedAuthor?.trim() || null,
     sourcePubYear: extractYear(options.seedPubDate),
     isbnCandidates,
+    fallbackSource: options.fallbackSource,
+    fallbackConfidence: options.fallbackConfidence,
+    fallbackReason: options.fallbackReason,
   };
 };
 
@@ -419,25 +435,25 @@ const extractOriginalTitle = (value: string | undefined): string | null => {
   return withoutTrailingParen || null;
 };
 
-const resolveOriginalTitleFromItem = async (item: Record<string, unknown> | undefined): Promise<string | null> => {
-  if (!item) return null;
+const resolveOriginalTitleFromItem = async (item: Record<string, unknown> | undefined): Promise<ResolvedOriginalTitle> => {
+  if (!item) return { title: null };
 
   const subInfoOriginal = (item.subInfo as { originalTitle?: string } | undefined)?.originalTitle;
   const directOriginal = extractOriginalTitle(subInfoOriginal);
-  if (directOriginal) return directOriginal;
+  if (directOriginal) return { title: directOriginal };
 
   const itemId = Number(item.itemId);
   if (Number.isFinite(itemId) && itemId > 0) {
     const lookup = await lookupAladinItemByItemId(itemId);
     const lookupOriginal = extractOriginalTitle((lookup?.subInfo as { originalTitle?: string } | undefined)?.originalTitle);
-    if (lookupOriginal) return lookupOriginal;
+    if (lookupOriginal) return { title: lookupOriginal };
   }
 
   const isbn13 = normalizeIsbn13(item.isbn13 as string | undefined);
   if (isbn13) {
     const lookup = await lookupAladinItemByIsbn13(isbn13);
     const lookupOriginal = extractOriginalTitle((lookup?.subInfo as { originalTitle?: string } | undefined)?.originalTitle);
-    if (lookupOriginal) return lookupOriginal;
+    if (lookupOriginal) return { title: lookupOriginal };
   }
 
   const fallback = await resolveOriginalTitleFallback({
@@ -447,10 +463,15 @@ const resolveOriginalTitleFromItem = async (item: Record<string, unknown> | unde
     pubDate: typeof item.pubDate === 'string' ? item.pubDate : undefined,
   });
   if (fallback?.originalTitle) {
-    return fallback.originalTitle;
+    return {
+      title: fallback.originalTitle,
+      fallbackSource: fallback.source,
+      fallbackConfidence: fallback.confidence,
+      fallbackReason: fallback.reason,
+    };
   }
 
-  return null;
+  return { title: null };
 };
 
 const createOfferFromAladinItem = (
@@ -701,10 +722,12 @@ const mapAladinOffers = async (
   }
 
   let originalTitle: string | null = null;
+  let originalResolved: ResolvedOriginalTitle | null = null;
   const seedItem = candidates[0]?.item as { author?: string; pubDate?: string } | undefined;
 
   if (preferences.includeOriginalEditions) {
-    originalTitle = await resolveOriginalTitleFromItem(candidates[0]?.item as Record<string, unknown> | undefined);
+    originalResolved = await resolveOriginalTitleFromItem(candidates[0]?.item as Record<string, unknown> | undefined);
+    originalTitle = originalResolved.title;
 
     if (originalTitle && includeOriginalFromAladin) {
       const foreignResults = await Promise.all([
@@ -745,6 +768,9 @@ const mapAladinOffers = async (
     seedAuthor: seedItem?.author,
     seedPubDate: seedItem?.pubDate,
     aladinOffers: offers,
+    fallbackSource: originalResolved?.fallbackSource,
+    fallbackConfidence: originalResolved?.fallbackConfidence,
+    fallbackReason: originalResolved?.fallbackReason,
   });
 
   return { offers: finalOffers, originalTitle, originalLinkContext };
@@ -1651,6 +1677,14 @@ export const analyzeBookDecisions = async (
 
         if (includeAmazonOriginal) {
           amazonOffers = await mapAmazonOriginalOffers(query, aladinResult.originalLinkContext, preferences);
+        }
+
+        if (aladinResult.originalLinkContext.fallbackSource && aladinResult.originalLinkContext.fallbackConfidence !== undefined) {
+          const confidencePct = Math.round(aladinResult.originalLinkContext.fallbackConfidence * 100);
+          const sourceLabel = aladinResult.originalLinkContext.fallbackSource === 'GOOGLE_BOOKS' ? 'Google Books' : 'Open Library';
+          globalWarnings.push(
+            `${query.raw}: 원서명을 ${sourceLabel} 기반으로 추정했습니다. (확신도 ${confidencePct}%, ${aladinResult.originalLinkContext.fallbackReason ?? '근거 요약 없음'})`,
+          );
         }
 
         if (!override && aladinOffers.length === 0) {
