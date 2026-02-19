@@ -9,7 +9,7 @@ _Last updated: 2026-02-19_
 - 임시 수정(실험 코드)은 태스크 완료 전 정리하고 커밋한다.
 
 ## 진행 현황 요약
-- 진행률: 65%
+- 진행률: 75%
 - 현재 집중 트랙: Amazon JP 일본어 원서 + 한국 번역서 연계 (MVP)
 
 ## Phase 0 - 문서 재정비
@@ -26,7 +26,7 @@ _Last updated: 2026-02-19_
 - [x] 결과 카드/테이블에 Amazon JP 출처 배지 노출 확인 (`components/AnalysisResult.tsx`) | Commit: `42e8f54`
 
 ## Phase 2 - 한국 번역서 <-> 일본어 원서 연계
-- [ ] 연계 키 우선순위 정의 (ISBN > 원제 > 저자+출간년도) | Commit: `-`
+- [x] 연계 키 우선순위 정의 (ISBN > 원제 > 저자+출간년도) | Commit: `cf45680`
 - [ ] 자동 매핑 실패 시 수동 교정 UX 흐름 점검 (`IdentityOverrideModal`) | Commit: `-`
 - [ ] 매핑 정확도 테스트셋 작성 (최소 30권) | Commit: `-`
 - [ ] 매핑 정확도 결과 문서화 (정확도, 실패 케이스) | Commit: `-`
